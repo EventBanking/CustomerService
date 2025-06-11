@@ -28,7 +28,7 @@
     CONSTRAINT FK_Addresses_State 
         FOREIGN KEY (StateId) 
         REFERENCES dbo.States(Id)
-);
+)
 GO
 
 CREATE INDEX IX_Addresses_CustomerId ON dbo.Addresses (CustomerId);

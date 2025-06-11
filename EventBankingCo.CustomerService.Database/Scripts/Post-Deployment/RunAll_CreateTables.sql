@@ -6,7 +6,7 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'States')
 BEGIN
 	:r dbo/Tables/States.sql
 
-	PRINT('States table created.');
+	PRINT('States table created.')
 END
 --
 ------------------------------------------------------------------------
@@ -15,7 +15,7 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'VerificationStatuses')
 BEGIN
 	:r dbo/Tables/VerificationStatuses.sql
 
-	PRINT('VerificationStatuses table created.');
+	PRINT('VerificationStatuses table created.')
 END
 --
 ------------------------------------------------------------------------
@@ -34,7 +34,7 @@ BEGIN
 	-- Depends On:
 		-- :r dbo/Tables/VerificationStatuses.sql
 
-	PRINT('Customers table created.');
+	PRINT('Customers table created.')
 END
 --
 ------------------------------------------------------------------------
@@ -46,7 +46,7 @@ BEGIN
 		-- dbo/Tables/States.sql
 		-- dbo/Tables/Customers.sql
 
-	PRINT('Addresses table created.');
+	PRINT('Addresses table created.')
 END
 ------------------------------------------------------------------------
 -- End of Schema - Transactional Data

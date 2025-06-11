@@ -26,7 +26,7 @@
     CONSTRAINT FK_Customers_VerificationStatusId 
         FOREIGN KEY (VerificationStatusId) 
         REFERENCES dbo.VerificationStatuses(Id)
-);
+)
 GO
 
 CREATE INDEX IX_Customers_Email ON dbo.Customers (Email);

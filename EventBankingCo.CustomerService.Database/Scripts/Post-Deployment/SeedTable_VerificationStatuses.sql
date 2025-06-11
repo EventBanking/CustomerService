@@ -10,4 +10,4 @@ ON target.Id = source.Id
 WHEN MATCHED AND (target.Name <> source.Name OR target.Description <> source.Description) THEN
     UPDATE SET Name = source.Name, Description = source.Description
 WHEN NOT MATCHED THEN
-    INSERT (Id, Name, Description) VALUES (source.Id, source.Name, source.Description);
+    INSERT (Id, Name, Description) VALUES (source.Id, source.Name, source.Description)
