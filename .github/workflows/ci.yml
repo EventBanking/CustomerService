@@ -51,7 +51,7 @@ jobs:
 
       - name: Run init-db.sql
         run: |
-          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -i ./init-db.sql
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -i ./EventBankingCo.CustomerService.Database/init-db.sql
 
       - name: Restore dependencies
         run: dotnet restore
