@@ -57,3 +57,4 @@ WHEN MATCHED AND (target.Name <> source.Name OR target.Abbreviation <> source.Ab
     UPDATE SET Name = source.Name, Abbreviation = source.Abbreviation
 WHEN NOT MATCHED THEN
     INSERT (Id, Name, Abbreviation) VALUES (source.Id, source.Name, source.Abbreviation)
+;

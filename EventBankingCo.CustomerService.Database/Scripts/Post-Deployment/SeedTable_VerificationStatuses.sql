@@ -11,3 +11,4 @@ WHEN MATCHED AND (target.Name <> source.Name OR target.Description <> source.Des
     UPDATE SET Name = source.Name, Description = source.Description
 WHEN NOT MATCHED THEN
     INSERT (Id, Name, Description) VALUES (source.Id, source.Name, source.Description)
+;
