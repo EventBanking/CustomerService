@@ -50,6 +50,7 @@ jobs:
           source ~/.bashrc
 
       - name: Run init-db.sql
+        working-directory: ./EventBankingCo.CustomerService.Database
         run: |
           /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -i ./EventBankingCo.CustomerService.Database/init-db.sql
 
