@@ -1,0 +1,17 @@
+# Ignore version control and editor files
+.git
+.vscode
+*.log
+
+# Ignore build artifacts
+bin/
+obj/
+
+# Ignore the Docker Compose and README files
+docker-compose.yml
+README.md
+
+# Optional: exclude large or unneeded local data
+*.bak
+*.mdf
+*.ldf

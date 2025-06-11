@@ -1,0 +1,54 @@
+name: Build and Test with SQL Server
+
+on:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          SA_PASSWORD: EventBankingCo_CustomerService_DB_Password
+          ACCEPT_EULA: "Y"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="exit 0" 
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Wait for SQL Server to start
+        run: |
+          echo "Waiting for SQL Server to be ready..."
+          for i in {1..30}; do
+            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -Q "SELECT 1" && break
+            echo "SQL Server not ready yet ($i)..."
+            sleep 3
+          done
+
+      - name: Run init-db.sql
+        run: |
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -i ./init-db.sql
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore
+
+      - name: Run tests
+        run: dotnet test --no-build --logger "trx"
+
