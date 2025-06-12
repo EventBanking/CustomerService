@@ -41,12 +41,6 @@ jobs:
         # dotnet sln remove EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj
         # dotnet build --no-restore --configuration Release
 
-    - name: Install SqlPackage
-      run: |
-        wget -qO- https://aka.ms/sqlpackage-linux | tar xvz -C /tmp
-        sudo cp /tmp/sqlpackage /usr/local/bin/
-        sudo chmod +x /usr/local/bin/sqlpackage
-
     - name: Wait for SQL Server to be ready
       run: |
         echo "Waiting for SQL Server to start..."
