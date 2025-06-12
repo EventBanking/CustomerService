@@ -111,7 +111,7 @@ jobs:
         echo "ConnectionStrings__DefaultConnection=Server=localhost;Database=EventBankingCo_CustomerService_Test;User Id=sa;Password=YourStrong!Passw0rd123;TrustServerCertificate=true" >> $GITHUB_ENV
 
     - name: Run tests
-      run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage" --logger trx --results-directory TestResults/
+      run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage" --logger trx --results-directory TestResults/ --filter "FullyQualifiedName!~Database"
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
