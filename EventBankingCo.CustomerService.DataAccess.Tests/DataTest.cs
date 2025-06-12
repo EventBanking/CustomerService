@@ -11,7 +11,7 @@ namespace EventBankingCo.CustomerService.DataAccess.Tests
         /// This is the expected connection string if you are running in DEV and have deployed the EventBankingCo.CustomerService.Database project to a docker container.
         /// Follow the steps in the readme for the Database project if you still need to deploy the database.
         /// </summary>
-        protected const string TestDatabaseConnectionString = "Server=localhost,1433;Database=CustomerService;User Id=sa;Password=Your!StrongP@ssw0rd123;Encrypt=False;";
+        protected const string TestDatabaseConnectionString = "Server=localhost,1433;Database=EventBankingCo_CustomerService_Test;User Id=sa;Password=Your!StrongP@ssw0rd123;Encrypt=False;";
 
         private readonly Mock<ICoreLogger<Core.DataAccess.Implementation.DataAccess>> _logger = new();
 

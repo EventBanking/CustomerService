@@ -12,17 +12,20 @@ jobs:
     
     services:
       sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
+        image: mcr.microsoft.com/mssql/server:2019-latest
         env:
-          SA_PASSWORD: YourStrong!Passw0rd
+          SA_PASSWORD: YourStrong!Passw0rd123
           ACCEPT_EULA: Y
+          MSSQL_PID: Express
         ports:
           - 1433:1433
         options: >-
-          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q 'SELECT 1'"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
+          --name=sqlserver
+          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1' || exit 1"
+          --health-interval=30s
+          --health-timeout=10s
+          --health-retries=5
+          --health-start-period=60s
 
     steps:
     - name: Checkout code
@@ -31,7 +34,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x' 
+        dotnet-version: '8.0.x' # Adjust to your .NET version (6.0.x, 7.0.x, 8.0.x)
 
     - name: Restore dependencies
       run: dotnet restore
@@ -47,31 +50,36 @@ jobs:
 
     - name: Wait for SQL Server to be ready
       run: |
-        for i in {1..30}; do
-          if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -Q 'SELECT 1' > /dev/null 2>&1; then
+        echo "Waiting for SQL Server to start..."
+        for i in {1..60}; do
+          if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1' > /dev/null 2>&1; then
             echo "SQL Server is ready"
             break
           fi
-          echo "Waiting for SQL Server... ($i/30)"
-          sleep 2
+          echo "Waiting for SQL Server... ($i/60)"
+          sleep 3
         done
+        
+        # Verify SQL Server is actually running
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT @@VERSION'
 
     - name: Deploy database schema
       run: |
         # Create the database
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -Q "CREATE DATABASE [EventBankingCo_CustomerService]"
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "CREATE DATABASE [EventBankingCo_CustomerService_Test]"
         
-        /TargetConnectionString:"Server=localhost;Database=EventBankingCo_CustomerService;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=true"
+        # Deploy using SqlPackage (if you have a .dacpac file)
+        # sqlpackage /Action:Publish /SourceFile:path/to/your/database.dacpac /TargetConnectionString:"Server=localhost;Database=EventBankingCo_CustomerService_Test;User Id=sa;Password=YourStrong!Passw0rd123;TrustServerCertificate=true"
         
         # Alternative: Run SQL scripts directly
         find EventBankingCo.CustomerService.Database -name "*.sql" -type f | while read script; do
           echo "Executing script: $script"
-          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -d EventBankingCo_CustomerService -i "$script"
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -d EventBankingCo_CustomerService_Test -i "$script"
         done
 
     - name: Set test environment variables
       run: |
-        echo "ConnectionStrings__DefaultConnection=Server=localhost;Database=EventBankingCo_CustomerService;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=true" >> $GITHUB_ENV
+        echo "ConnectionStrings__DefaultConnection=Server=localhost;Database=EventBankingCo_CustomerService_Test;User Id=sa;Password=YourStrong!Passw0rd123;TrustServerCertificate=true" >> $GITHUB_ENV
 
     - name: Run tests
       run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage" --logger trx --results-directory TestResults/
@@ -89,3 +97,10 @@ jobs:
       with:
         name: code-coverage
         path: TestResults/*/coverage.cobertura.xml
+
+    # Optional: Publish code coverage to Codecov
+    # - name: Upload coverage to Codecov
+    #   uses: codecov/codecov-action@v3
+    #   with:
+    #     file: TestResults/*/coverage.cobertura.xml
+    #     fail_ci_if_error: true
