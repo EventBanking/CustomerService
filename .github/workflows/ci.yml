@@ -6,8 +6,9 @@ on:
       - "**"
 
 jobs:
-  test:
+  build-and-test:
     runs-on: ubuntu-latest
+
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -17,49 +18,54 @@ jobs:
         ports:
           - 1433:1433
         options: >-
-          --health-cmd="exit 0" 
-          --health-interval=10s 
-          --health-timeout=5s 
+          --health-cmd="echo 'SELECT 1' | /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -d master"
+          --health-interval=10s
+          --health-timeout=5s
           --health-retries=5
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Set up .NET
+      - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
 
-      - name: Wait for SQL Server to start
-        run: |
-          echo "Waiting for SQL Server to be ready..."
-          for i in {1..30}; do
-            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -Q "SELECT 1" && break
-            echo "SQL Server not ready yet ($i)..."
-            sleep 3
-          done
-          
-      - name: Install sqlcmd
-        run: |
-          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-          curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/msprod.list
-          sudo apt-get update
-          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools unixodbc-dev
-          echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
-          echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.profile
-          source ~/.bashrc
+      - name: Install MSBuild for .sqlproj
+        uses: microsoft/setup-msbuild@v1.1
 
-      - name: Run init-db.sql
-        working-directory: ./EventBankingCo.CustomerService.Database
+      - name: Install SqlPackage
         run: |
-          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -i ./init-db.sql
+          curl -L -o sqlpackage.zip https://aka.ms/sqlpackage-linux
+          unzip sqlpackage.zip -d sqlpackage
+          chmod +x sqlpackage/sqlpackage
+          sudo mv sqlpackage/sqlpackage /usr/local/bin/sqlpackage
 
-      - name: Restore dependencies
+      - name: Restore .NET dependencies
         run: dotnet restore
 
-      - name: Build
-        run: dotnet build --no-restore
+      - name: Build all projects (including .sqlproj)
+        run: msbuild CustomerService/EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj /p:Configuration=Release
 
-      - name: Run tests
+      - name: Wait for SQL Server to be ready
+        run: |
+          echo "Waiting for SQL Server to start..."
+          for i in {1..30}; do
+            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -Q "SELECT 1" && break
+            echo "Still waiting..."
+            sleep 3
+          done
+
+      - name: Deploy DACPAC to SQL Server
+        run: |
+          sqlpackage /Action:Publish \
+            /SourceFile:CustomerService/EventBankingCo.CustomerService.Database/bin/Release/EventBankingCo.CustomerService.Database.dacpac \
+            /TargetServerName:localhost \
+            /TargetDatabaseName:CustomerService \
+            /TargetUser:sa \
+            /TargetPassword:EventBankingCo_CustomerService_DB_Password \
+            /Quiet
+
+      - name: Run .NET tests
         run: dotnet test --no-build --logger "trx"
-

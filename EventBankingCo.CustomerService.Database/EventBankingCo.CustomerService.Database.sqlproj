@@ -72,7 +72,6 @@
     <PostDeploy Include="Scripts\Post-Deployment\SeedTable_States.sql" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Scripts\Post-Deployment\SeedTable_VerificationStatuses.sql" />
     <None Include="docker\entrypoint.sh" />
     <None Include="README.md" />
     <None Include="docker-compose.yml" />
