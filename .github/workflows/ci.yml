@@ -19,7 +19,7 @@ jobs:
           - 1433:1433
         options: >-
           --memory=3g
-          --health-cmd="echo 'SELECT 1' | /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -d master"
+          --health-cmd="echo 'SELECT 1' | /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your!StrongP@ssw0rd123 -d master"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
