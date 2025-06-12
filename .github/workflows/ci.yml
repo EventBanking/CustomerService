@@ -1,4 +1,4 @@
-name: Build, DACPAC Deploy, and Test
+name: Build, Deploy DACPAC, and Test (.NET + SQL Server)
 
 on:
   push:
@@ -9,50 +9,42 @@ jobs:
   test:
     runs-on: windows-latest
 
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-CU12-ubuntu-20.04
-        env:
-          SA_PASSWORD: Your!StrongP@ssw0rd123
-          ACCEPT_EULA: "Y"
-        ports:
-          - 1433:1433
-        options: >-
-          --memory=3g
-          --health-cmd="exit 0"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
+      - name: Set up Docker on Windows
+        run: |
+          docker version
 
-      - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v2
-        with:
-          vs-version: 2022
+      - name: Start SQL Server container
+        run: |
+          docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=Your!StrongP@ssw0rd123" `
+            -p 1433:1433 --name sqlserver `
+            -d mcr.microsoft.com/mssql/server:2022-latest
 
       - name: Wait for SQL Server to be ready
         shell: pwsh
         run: |
-          Write-Host "Waiting for SQL Server to be ready..."
-          $retries = 0
-          while ($retries -lt 30) {
+          Write-Host "Waiting for SQL Server..."
+          for ($i = 0; $i -lt 30; $i++) {
             try {
               sqlcmd -S localhost -U sa -P "Your!StrongP@ssw0rd123" -Q "SELECT 1"
               break
             } catch {
               Start-Sleep -Seconds 3
-              $retries++
-              Write-Host "Retrying SQL connection... ($retries)"
+              Write-Host "Waiting... ($i)"
             }
           }
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: 2022
 
       - name: Build DACPAC
         run: |
@@ -67,10 +59,10 @@ jobs:
             /TargetUser:sa `
             /TargetPassword:"Your!StrongP@ssw0rd123"
 
-      - name: Restore dependencies
+      - name: Restore .NET dependencies
         run: dotnet restore
 
-      - name: Build solution
+      - name: Build .NET
         run: dotnet build --no-restore
 
       - name: Run tests
