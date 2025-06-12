@@ -32,8 +32,14 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
-    - name: Build solution
-      run: dotnet build --no-restore --configuration Release
+    - name: Build solution (excluding database project)
+      run: |
+        # Build all projects except the .sqlproj
+        find . -name "*.csproj" -exec dotnet build {} --no-restore --configuration Release \;
+        
+        # Alternative: If you have a solution file, you can exclude the project
+        # dotnet sln remove EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj
+        # dotnet build --no-restore --configuration Release
 
     - name: Install SqlPackage
       run: |
@@ -64,14 +70,26 @@ jobs:
         # Create the database
         /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "CREATE DATABASE [EventBankingCo_CustomerService_Test]"
         
-        # Deploy using SqlPackage (if you have a .dacpac file)
-        # sqlpackage /Action:Publish /SourceFile:path/to/your/database.dacpac /TargetConnectionString:"Server=localhost;Database=EventBankingCo_CustomerService_Test;User Id=sa;Password=YourStrong!Passw0rd123;TrustServerCertificate=true"
+        # Execute SQL scripts in order
+        # First, run table creation scripts
+        if [ -d "EventBankingCo.CustomerService.Database" ]; then
+          echo "Found database project directory"
+          
+          # Execute Create Scripts (Tables, Views, etc.)
+          find EventBankingCo.CustomerService.Database -name "*.sql" -not -path "*/bin/*" -not -path "*/obj/*" -type f | sort | while read script; do
+            echo "Executing script: $script"
+            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -d EventBankingCo_CustomerService_Test -i "$script" -b
+            if [ $? -ne 0 ]; then
+              echo "Failed to execute script: $script"
+              exit 1
+            fi
+          done
+        else
+          echo "Database project directory not found. Skipping database deployment."
+        fi
         
-        # Alternative: Run SQL scripts directly
-        find EventBankingCo.CustomerService.Database -name "*.sql" -type f | while read script; do
-          echo "Executing script: $script"
-          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -d EventBankingCo_CustomerService_Test -i "$script"
-        done
+        # Verify database was created successfully
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "SELECT name FROM sys.databases WHERE name = 'EventBankingCo_CustomerService_Test'"
 
     - name: Set test environment variables
       run: |
