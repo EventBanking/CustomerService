@@ -1,69 +1,85 @@
-name: Build, Deploy DACPAC, and Test (.NET + SQL Server)
+name: Build and Deploy DACPAC to SQL Server
 
 on:
   push:
     branches:
-      - "**"
+      - '**'
 
 jobs:
-  test:
+  build-dacpac:
+    name: Build DACPAC
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Set up Docker on Windows
-        run: |
-          docker version
-
-      - name: Start SQL Server container
-        run: |
-          docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=Your!StrongP@ssw0rd123" `
-            -p 1433:1433 --name sqlserver `
-            -d mcr.microsoft.com/mssql/server:2022-latest
-
-      - name: Wait for SQL Server to be ready
-        shell: pwsh
-        run: |
-          Write-Host "Waiting for SQL Server..."
-          for ($i = 0; $i -lt 30; $i++) {
-            try {
-              sqlcmd -S localhost -U sa -P "Your!StrongP@ssw0rd123" -Q "SELECT 1"
-              break
-            } catch {
-              Start-Sleep -Seconds 3
-              Write-Host "Waiting... ($i)"
-            }
-          }
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-
-      - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v2
-        with:
-          vs-version: 2022
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v1.1
 
       - name: Build DACPAC
         run: |
-          msbuild ./CustomerService/EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj /p:Configuration=Debug
+          msbuild EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj ^
+            /p:Configuration=Release ^
+            /p:OutputPath="${{ github.workspace }}\\dacpac"
+
+      - name: Upload DACPAC artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-service-dacpac
+          path: dacpac/*.dacpac
+
+  deploy-and-test:
+    name: Deploy to SQL Server and Run Tests
+    runs-on: ubuntu-latest
+    needs: build-dacpac
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          SA_PASSWORD: Your!StrongP@ssw0rd123
+          ACCEPT_EULA: "Y"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your!StrongP@ssw0rd123 -Q \"SELECT 1\"" 
+          --health-interval=10s 
+          --health-timeout=5s 
+          --health-retries=10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download DACPAC artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: customer-service-dacpac
+
+      - name: Install sqlpackage
+        run: |
+          wget https://aka.ms/sqlpackage-linux -O sqlpackage.zip
+          unzip sqlpackage.zip -d sqlpackage
+          chmod +x sqlpackage/sqlpackage
+          sudo mv sqlpackage/sqlpackage /usr/local/bin/sqlpackage
+
+      - name: Wait for SQL Server to become available
+        run: |
+          for i in {1..30}; do
+            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your!StrongP@ssw0rd123 -Q "SELECT 1" && break
+            echo "Waiting for SQL Server ($i)..."
+            sleep 3
+          done
 
       - name: Deploy DACPAC
         run: |
-          & "C:\Program Files\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe" /Action:Publish `
-            /SourceFile:"CustomerService\EventBankingCo.CustomerService.Database\bin\Debug\EventBankingCo.CustomerService.Database.dacpac" `
-            /TargetServerName:localhost `
-            /TargetDatabaseName:CustomerService `
-            /TargetUser:sa `
-            /TargetPassword:"Your!StrongP@ssw0rd123"
-
-      - name: Restore .NET dependencies
-        run: dotnet restore
-
-      - name: Build .NET
-        run: dotnet build --no-restore
+          sqlpackage \
+            /Action:Publish \
+            /SourceFile:customer-service.dacpac \
+            /TargetServerName:localhost \
+            /TargetDatabaseName:CustomerService \
+            /TargetUser:sa \
+            /TargetPassword:Your!StrongP@ssw0rd123
 
       - name: Run tests
-        run: dotnet test --no-build --logger "trx"
+        run: dotnet test
