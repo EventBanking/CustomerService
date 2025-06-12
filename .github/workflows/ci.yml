@@ -41,15 +41,32 @@ jobs:
         # dotnet sln remove EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj
         # dotnet build --no-restore --configuration Release
 
+    - name: Install SQL Server tools
+      run: |
+        # Add Microsoft repository
+        curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+        curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/msprod.list
+        
+        # Update package list and install sqlcmd
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y mssql-tools unixodbc-dev
+        
+        # Add sqlcmd to PATH
+        echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
+        export PATH="$PATH:/opt/mssql-tools/bin"
+
     - name: Wait for SQL Server to be ready
       run: |
         echo "Waiting for SQL Server to start..."
         sleep 30  # Give SQL Server time to initialize
         
+        # Add sqlcmd to PATH for this step
+        export PATH="$PATH:/opt/mssql-tools/bin"
+        
         for i in {1..30}; do
-          if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1' > /dev/null 2>&1; then
+          if sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1' > /dev/null 2>&1; then
             echo "SQL Server is ready!"
-            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT @@VERSION'
+            sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT @@VERSION'
             break
           fi
           echo "Waiting for SQL Server... attempt $i/30"
@@ -57,12 +74,15 @@ jobs:
         done
         
         # Final check - if this fails, the job should fail
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1'
+        sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1'
 
     - name: Deploy database schema
       run: |
+        # Add sqlcmd to PATH
+        export PATH="$PATH:/opt/mssql-tools/bin"
+        
         # Create the database
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "CREATE DATABASE [EventBankingCo_CustomerService_Test]"
+        sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "CREATE DATABASE [EventBankingCo_CustomerService_Test]"
         
         # Execute SQL scripts in order
         # First, run table creation scripts
@@ -72,7 +92,7 @@ jobs:
           # Execute Create Scripts (Tables, Views, etc.)
           find EventBankingCo.CustomerService.Database -name "*.sql" -not -path "*/bin/*" -not -path "*/obj/*" -type f | sort | while read script; do
             echo "Executing script: $script"
-            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -d EventBankingCo_CustomerService_Test -i "$script" -b
+            sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -d EventBankingCo_CustomerService_Test -i "$script" -b
             if [ $? -ne 0 ]; then
               echo "Failed to execute script: $script"
               exit 1
@@ -83,7 +103,7 @@ jobs:
         fi
         
         # Verify database was created successfully
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "SELECT name FROM sys.databases WHERE name = 'EventBankingCo_CustomerService_Test'"
+        sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "SELECT name FROM sys.databases WHERE name = 'EventBankingCo_CustomerService_Test'"
 
     - name: Set test environment variables
       run: |
