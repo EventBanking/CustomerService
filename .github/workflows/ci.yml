@@ -19,13 +19,6 @@ jobs:
           MSSQL_PID: Express
         ports:
           - 1433:1433
-        options: >-
-          --name=sqlserver
-          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1' || exit 1"
-          --health-interval=30s
-          --health-timeout=10s
-          --health-retries=5
-          --health-start-period=60s
 
     steps:
     - name: Checkout code
@@ -51,17 +44,20 @@ jobs:
     - name: Wait for SQL Server to be ready
       run: |
         echo "Waiting for SQL Server to start..."
-        for i in {1..60}; do
+        sleep 30  # Give SQL Server time to initialize
+        
+        for i in {1..30}; do
           if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1' > /dev/null 2>&1; then
-            echo "SQL Server is ready"
+            echo "SQL Server is ready!"
+            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT @@VERSION'
             break
           fi
-          echo "Waiting for SQL Server... ($i/60)"
-          sleep 3
+          echo "Waiting for SQL Server... attempt $i/30"
+          sleep 5
         done
         
-        # Verify SQL Server is actually running
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT @@VERSION'
+        # Final check - if this fails, the job should fail
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1'
 
     - name: Deploy database schema
       run: |
