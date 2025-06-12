@@ -1,87 +1,91 @@
-name: Build and Deploy DACPAC to SQL Server
+name: .NET API CI/CD
 
 on:
   push:
-    branches:
-      - '**'
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
 
 jobs:
-  build-dacpac:
-    name: Build DACPAC
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v1.1
-
-      - name: Build DACPAC
-        shell: pwsh
-        run: |
-          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
-            "EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj" `
-            /p:Configuration=Release `
-            /p:Platform="Any CPU"
-
-      - name: Upload DACPAC artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: customer-service-dacpac
-          path: dacpac/*.dacpac
-
-  deploy-and-test:
-    name: Deploy to SQL Server and Run Tests
+  build-and-test:
     runs-on: ubuntu-latest
-    needs: build-dacpac
+    
     services:
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
         env:
-          SA_PASSWORD: Your!StrongP@ssw0rd123
-          ACCEPT_EULA: "Y"
+          SA_PASSWORD: YourStrong!Passw0rd
+          ACCEPT_EULA: Y
         ports:
           - 1433:1433
         options: >-
-          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your!StrongP@ssw0rd123 -Q \"SELECT 1\"" 
-          --health-interval=10s 
-          --health-timeout=5s 
-          --health-retries=10
+          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P YourStrong!Passw0rd -Q 'SELECT 1'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Download DACPAC artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: customer-service-dacpac
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x' 
 
-      - name: Install sqlpackage
-        run: |
-          wget https://aka.ms/sqlpackage-linux -O sqlpackage.zip
-          unzip sqlpackage.zip -d sqlpackage
-          chmod +x sqlpackage/sqlpackage
-          sudo mv sqlpackage/sqlpackage /usr/local/bin/sqlpackage
+    - name: Restore dependencies
+      run: dotnet restore
 
-      - name: Wait for SQL Server to become available
-        run: |
-          for i in {1..30}; do
-            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your!StrongP@ssw0rd123 -Q "SELECT 1" && break
-            echo "Waiting for SQL Server ($i)..."
-            sleep 3
-          done
+    - name: Build solution
+      run: dotnet build --no-restore --configuration Release
 
-      - name: Deploy DACPAC
-        run: |
-          sqlpackage \
-            /Action:Publish \
-            /SourceFile:customer-service.dacpac \
-            /TargetServerName:localhost \
-            /TargetDatabaseName:CustomerService \
-            /TargetUser:sa \
-            /TargetPassword:Your!StrongP@ssw0rd123
+    - name: Install SqlPackage
+      run: |
+        wget -qO- https://aka.ms/sqlpackage-linux | tar xvz -C /tmp
+        sudo cp /tmp/sqlpackage /usr/local/bin/
+        sudo chmod +x /usr/local/bin/sqlpackage
 
-      - name: Run tests
-        run: dotnet test
+    - name: Wait for SQL Server to be ready
+      run: |
+        for i in {1..30}; do
+          if /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -Q 'SELECT 1' > /dev/null 2>&1; then
+            echo "SQL Server is ready"
+            break
+          fi
+          echo "Waiting for SQL Server... ($i/30)"
+          sleep 2
+        done
+
+    - name: Deploy database schema
+      run: |
+        # Create the database
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -Q "CREATE DATABASE [EventBankingCo_CustomerService]"
+        
+        /TargetConnectionString:"Server=localhost;Database=EventBankingCo_CustomerService;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=true"
+        
+        # Alternative: Run SQL scripts directly
+        find EventBankingCo.CustomerService.Database -name "*.sql" -type f | while read script; do
+          echo "Executing script: $script"
+          /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -d EventBankingCo_CustomerService -i "$script"
+        done
+
+    - name: Set test environment variables
+      run: |
+        echo "ConnectionStrings__DefaultConnection=Server=localhost;Database=EventBankingCo_CustomerService;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=true" >> $GITHUB_ENV
+
+    - name: Run tests
+      run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage" --logger trx --results-directory TestResults/
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: TestResults/
+
+    - name: Upload code coverage
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: code-coverage
+        path: TestResults/*/coverage.cobertura.xml
