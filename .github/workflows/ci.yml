@@ -1,4 +1,4 @@
-name: Build and Test with SQL Server
+name: Build, DACPAC Deploy, and Test
 
 on:
   push:
@@ -6,8 +6,8 @@ on:
       - "**"
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: windows-latest
 
     services:
       sqlserver:
@@ -19,54 +19,59 @@ jobs:
           - 1433:1433
         options: >-
           --memory=3g
-          --health-cmd="echo 'SELECT 1' | /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Your!StrongP@ssw0rd123 -d master"
+          --health-cmd="exit 0"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up .NET 8
+      - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: '8.0.x'
 
-      - name: Install MSBuild for .sqlproj
-        uses: microsoft/setup-msbuild@v1.1
-
-      - name: Install SqlPackage
-        run: |
-          curl -L -o sqlpackage.zip https://aka.ms/sqlpackage-linux
-          unzip sqlpackage.zip -d sqlpackage
-          chmod +x sqlpackage/sqlpackage
-          sudo mv sqlpackage/sqlpackage /usr/local/bin/sqlpackage
-
-      - name: Restore .NET dependencies
-        run: dotnet restore
-
-      - name: Build all projects (including .sqlproj)
-        run: msbuild CustomerService/EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj /p:Configuration=Release
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: 2022
 
       - name: Wait for SQL Server to be ready
+        shell: pwsh
         run: |
-          echo "Waiting for SQL Server to start..."
-          for i in {1..30}; do
-            /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P EventBankingCo_CustomerService_DB_Password -Q "SELECT 1" && break
-            echo "Still waiting..."
-            sleep 3
-          done
+          Write-Host "Waiting for SQL Server to be ready..."
+          $retries = 0
+          while ($retries -lt 30) {
+            try {
+              sqlcmd -S localhost -U sa -P "Your!StrongP@ssw0rd123" -Q "SELECT 1"
+              break
+            } catch {
+              Start-Sleep -Seconds 3
+              $retries++
+              Write-Host "Retrying SQL connection... ($retries)"
+            }
+          }
 
-      - name: Deploy DACPAC to SQL Server
+      - name: Build DACPAC
         run: |
-          sqlpackage /Action:Publish \
-            /SourceFile:CustomerService/EventBankingCo.CustomerService.Database/bin/Release/EventBankingCo.CustomerService.Database.dacpac \
-            /TargetServerName:localhost \
-            /TargetDatabaseName:CustomerService \
-            /TargetUser:sa \
-            /TargetPassword:EventBankingCo_CustomerService_DB_Password \
-            /Quiet
+          msbuild ./CustomerService/EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj /p:Configuration=Debug
 
-      - name: Run .NET tests
+      - name: Deploy DACPAC
+        run: |
+          & "C:\Program Files\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe" /Action:Publish `
+            /SourceFile:"CustomerService\EventBankingCo.CustomerService.Database\bin\Debug\EventBankingCo.CustomerService.Database.dacpac" `
+            /TargetServerName:localhost `
+            /TargetDatabaseName:CustomerService `
+            /TargetUser:sa `
+            /TargetPassword:"Your!StrongP@ssw0rd123"
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build solution
+        run: dotnet build --no-restore
+
+      - name: Run tests
         run: dotnet test --no-build --logger "trx"
