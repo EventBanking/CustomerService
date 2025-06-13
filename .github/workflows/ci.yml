@@ -11,7 +11,7 @@ env:
   SQL_SERVER_VERSION: '2022-latest'
   DATABASE_NAME: 'EventBankingCo_CustomerService'
   SQL_CONNECTION_STRING: 'Server=localhost,1433;Database=EventBankingCo_CustomerService;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true;Connection Timeout=30;'
-  SA_PASSWORD: '3v3nTp@sSw0rD'
+  SA_PASSWORD: 'YourStrong@Passw0rd'
   
   # Project Configuration
   DACPAC_PROJECT: 'EventBankingCo.CustomerService.Database'
@@ -32,11 +32,11 @@ jobs:
         ports:
           - 1433:1433
         options: >-
-          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P $SA_PASSWORD -Q 'SELECT 1' || exit 1"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-          --health-start-period=10s
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $SA_PASSWORD -C -Q 'SELECT 1' || exit 1"
+          --health-interval=15s
+          --health-timeout=10s
+          --health-retries=15
+          --health-start-period=30s
 
     steps:
     - name: Checkout repository
@@ -72,44 +72,58 @@ jobs:
         
         echo "✅ SQL Server container is running (ID: $CONTAINER_ID)"
         
-        # Wait for SQL Server to be ready with better error handling
+        # Wait for SQL Server to be ready - focus on actual connectivity, not just health check
         echo "Waiting for SQL Server to accept connections..."
         READY=false
-        for i in {1..60}; do
-          echo "Attempt $i/60: Testing SQL Server connection..."
+        for i in {1..40}; do
+          echo "Attempt $i/40: Testing SQL Server connection..."
           
-          # Check container health first
+          # Check container health status
           HEALTH_STATUS=$(docker inspect --format='{{.State.Health.Status}}' $CONTAINER_ID 2>/dev/null || echo "unknown")
           echo "Container health status: $HEALTH_STATUS"
           
-          # Try to connect via host networking (GitHub Actions approach)
-          if sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT 1 as TestConnection" -t 10 > /dev/null 2>&1; then
+          # Primary test: Try to connect using sqlcmd from host
+          if timeout 15 sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT 1 as TestConnection" > /dev/null 2>&1; then
             echo "✅ SQL Server is ready and accepting connections!"
             READY=true
             break
           fi
           
-          # If sqlcmd isn't available yet, try via docker exec
-          if docker exec $CONTAINER_ID /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT 1" > /dev/null 2>&1; then
+          # Secondary test: Try via docker exec (in case host networking has issues)
+          if timeout 15 docker exec $CONTAINER_ID /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT 1" > /dev/null 2>&1; then
             echo "✅ SQL Server is ready (verified via docker exec)!"
             READY=true
             break
           fi
           
-          echo "SQL Server not ready yet, waiting 5 seconds..."
-          sleep 5
+          # Check if SQL Server process is at least running inside container
+          if docker exec $CONTAINER_ID pgrep sqlservr > /dev/null 2>&1; then
+            echo "SQL Server process is running, but not accepting connections yet..."
+          else
+            echo "SQL Server process not found - still starting up..."
+          fi
           
-          # Show logs every 10 attempts for debugging
-          if [ $((i % 10)) -eq 0 ]; then
-            echo "Container logs preview (last 10 lines):"
-            docker logs $CONTAINER_ID --tail 10
+          echo "SQL Server not ready yet, waiting 8 seconds..."
+          sleep 8
+          
+          # Show logs every 5 attempts for debugging
+          if [ $((i % 5)) -eq 0 ]; then
+            echo "Container logs preview (last 5 lines):"
+            docker logs $CONTAINER_ID --tail 5
           fi
         done
         
         if [ "$READY" = false ]; then
-          echo "❌ SQL Server failed to start after 5 minutes"
-          echo "Final container status:"
-          docker inspect $CONTAINER_ID --format='{{.State.Status}} - {{.State.Health.Status}}'
+          echo "❌ SQL Server failed to start after ~5 minutes"
+          echo "Final container health status:"
+          docker inspect $CONTAINER_ID --format='Status: {{.State.Status}}, Health: {{.State.Health.Status}}'
+          echo ""
+          echo "SQL Server process check:"
+          docker exec $CONTAINER_ID pgrep sqlservr || echo "SQL Server process not running"
+          echo ""
+          echo "Port check inside container:"
+          docker exec $CONTAINER_ID netstat -tuln | grep 1433 || echo "Port 1433 not listening"
+          echo ""
           echo "Full container logs:"
           docker logs $CONTAINER_ID
           exit 1
@@ -190,16 +204,30 @@ jobs:
     - name: Test SQL Server connectivity
       run: |
         echo "Testing SQL Server connectivity..."
-        export PATH="$PATH:/opt/mssql-tools/bin"
         
-        # Test basic connectivity
-        if ! sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT GETDATE() as CurrentTime, @@VERSION as SqlVersion"; then
-          echo "❌ Cannot connect to SQL Server"
-          echo "Connection string being used: Server=localhost,1433;User Id=sa;TrustServerCertificate=true"
+        # Test basic connectivity with explicit parameters
+        echo "Testing connection with sqlcmd..."
+        if ! sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT GETDATE() as CurrentTime, @@VERSION as SqlVersion" -t 30; then
+          echo "❌ Cannot connect to SQL Server via sqlcmd"
+          echo "Connection details:"
+          echo "  Server: localhost,1433"
+          echo "  User: sa" 
+          echo "  TrustServerCertificate: Yes"
+          echo ""
           echo "Container status:"
-          docker ps
-          echo "Container logs:"
-          docker logs $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest) --tail 50
+          docker ps --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest
+          echo ""
+          echo "Container health:"
+          CONTAINER_ID=$(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest)
+          if [ ! -z "$CONTAINER_ID" ]; then
+            docker inspect --format='Health: {{.State.Health.Status}}' $CONTAINER_ID
+            echo ""
+            echo "Recent container logs:"
+            docker logs $CONTAINER_ID --tail 50
+          fi
+          echo ""
+          echo "Network connectivity test:"
+          nc -zv localhost 1433 || echo "Port 1433 is not accessible"
           exit 1
         fi
         echo "✅ SQL Server connectivity verified"
@@ -239,20 +267,19 @@ jobs:
     - name: Verify database deployment
       run: |
         echo "Verifying database deployment..."
-        export PATH="$PATH:/opt/mssql-tools/bin"
         
         # Check if database exists
-        DB_EXISTS=$(sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT COUNT(*) FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'" -h -1 -W)
+        DB_EXISTS=$(sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT COUNT(*) FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'" -h -1 -W -t 30)
         if [ "$DB_EXISTS" != "1" ]; then
           echo "❌ Database '${{ env.DATABASE_NAME }}' was not created"
           echo "Available databases:"
-          sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT name FROM sys.databases"
+          sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT name FROM sys.databases" -t 30
           exit 1
         fi
         
         # Check table count (adjust this query based on your schema)
         echo "Database objects summary:"
-        sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -d "${{ env.DATABASE_NAME }}" -Q "
+        sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -d "${{ env.DATABASE_NAME }}" -Q "
         SELECT 
           'Tables' as ObjectType, COUNT(*) as Count 
         FROM INFORMATION_SCHEMA.TABLES 
@@ -265,7 +292,7 @@ jobs:
         SELECT 
           'Stored Procedures' as ObjectType, COUNT(*) as Count 
         FROM INFORMATION_SCHEMA.ROUTINES 
-        WHERE ROUTINE_TYPE = 'PROCEDURE'"
+        WHERE ROUTINE_TYPE = 'PROCEDURE'" -t 30
         
         echo "✅ Database deployment verified"
 
@@ -334,15 +361,19 @@ jobs:
       if: failure()
       run: |
         echo "Cleaning up database due to pipeline failure..."
-        export PATH="$PATH:/opt/mssql-tools/bin"
         
         # Show database state for debugging
         echo "Current database state:"
-        sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT name, state_desc FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'" || true
+        sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT name, state_desc FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'" -t 30 || true
         
         # Show recent SQL Server logs
         echo "Recent SQL Server logs:"
-        docker logs $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest) --tail 100 || true
+        CONTAINER_ID=$(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest)
+        if [ ! -z "$CONTAINER_ID" ]; then
+          docker logs $CONTAINER_ID --tail 100 || true
+        else
+          echo "No SQL Server container found"
+        fi
 
     - name: Pipeline summary
       if: always()
