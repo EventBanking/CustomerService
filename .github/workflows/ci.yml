@@ -10,8 +10,8 @@ env:
   # SQL Server Configuration
   SQL_SERVER_VERSION: '2022-latest'
   DATABASE_NAME: 'EventBankingCo_CustomerService'
-  SQL_CONNECTION_STRING: 'Server=localhost,1433;Database=EventBankingCo_CustomerService;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true;Connection Timeout=30;'
-  SA_PASSWORD: 'YourStrong@Passw0rd'
+  SQL_CONNECTION_STRING: 'Server=localhost,1433;Database=EventBankingCo_CustomerService;User Id=sa;Password=3v3nTp@sSw0rD;TrustServerCertificate=true;Connection Timeout=30;'
+  SA_PASSWORD: '3v3nTp@sSw0rD'
   
   # Project Configuration
   DACPAC_PROJECT: 'EventBankingCo.CustomerService.Database'
