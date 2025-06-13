@@ -67,15 +67,15 @@
     <Build Include="dbo\Tables\VerificationStatuses.sql" />
     <Build Include="dbo\Tables\States.sql" />
     <Build Include="dbo\Tables\Addresses.sql" />
-    <Build Include="Scripts\Post-Deployment\Post-Deployment.sql" />
-    <Build Include="Scripts\Post-Deployment\SeedTable_VerificationStatuses.sql" />
   </ItemGroup>
   <ItemGroup>
     <PostDeploy Include="Scripts\Post-Deployment\SeedTable_States.sql" />
+    <None Include="Scripts\PostDeployment.sql" />
   </ItemGroup>
   <ItemGroup>
     <None Include="docker\entrypoint.sh" />
     <None Include="README.md" />
     <None Include="docker-compose.yml" />
+    <None Include="Scripts\Post-Deployment\SeedTable_VerificationStatuses.sql" />
   </ItemGroup>
 </Project>

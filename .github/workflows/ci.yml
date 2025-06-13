@@ -1,135 +1,310 @@
-name: .NET API CI/CD
+﻿name: Database CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: ['**']  # Triggers on push to any branch
   pull_request:
-    branches: [ main, develop ]
+    branches: ['**']
+
+env:
+  # SQL Server Configuration
+  SQL_SERVER_VERSION: '2022-latest'
+  DATABASE_NAME: 'EventBankingCo_CustomerService'
+  SQL_CONNECTION_STRING: 'Server=localhost,1433;Database=EventBankingCo_CustomerService;User Id=sa;Password=3v3nTp@sSw0rD;TrustServerCertificate=true;Connection Timeout=30;'
+  SA_PASSWORD: 'YourStrong@Passw0rd'
+  
+  # Project Configuration
+  DACPAC_PROJECT: 'EventBankingCo.CustomerService.Database'
+  TEST_PROJECT: 'EventBankingCo.CustomerService.DataAccess.Tests'
+  DOTNET_VERSION: '8.0.x'  # Adjust to your .NET version
 
 jobs:
-  build-and-test:
+  database-ci-cd:
     runs-on: ubuntu-latest
     
     services:
       sqlserver:
-        image: mcr.microsoft.com/mssql/server:2019-latest
+        image: mcr.microsoft.com/mssql/server:2022-latest
         env:
-          SA_PASSWORD: YourStrong!Passw0rd123
           ACCEPT_EULA: Y
-          MSSQL_PID: Express
+          SA_PASSWORD: ${{ env.SA_PASSWORD }}
+          MSSQL_PID: Developer
         ports:
           - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P $SA_PASSWORD -Q 'SELECT 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x' # Adjust to your .NET version (6.0.x, 7.0.x, 8.0.x)
+        dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Restore dependencies
-      run: dotnet restore
-
-    - name: Build solution (excluding database project)
-      run: |
-        # Build all projects except the .sqlproj
-        find . -name "*.csproj" -exec dotnet build {} --no-restore --configuration Release \;
-        
-        # Alternative: If you have a solution file, you can exclude the project
-        # dotnet sln remove EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj
-        # dotnet build --no-restore --configuration Release
-
-    - name: Install SQL Server tools
-      run: |
-        # Add Microsoft repository
-        curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-        curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/msprod.list
-        
-        # Update package list and install sqlcmd
-        sudo apt-get update
-        sudo ACCEPT_EULA=Y apt-get install -y mssql-tools unixodbc-dev
-        
-        # Add sqlcmd to PATH
-        echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
-        export PATH="$PATH:/opt/mssql-tools/bin"
+    - name: Cache NuGet packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
 
     - name: Wait for SQL Server to be ready
       run: |
-        echo "Waiting for SQL Server to start..."
-        sleep 30  # Give SQL Server time to initialize
-        
-        # Add sqlcmd to PATH for this step
-        export PATH="$PATH:/opt/mssql-tools/bin"
-        
+        echo "Waiting for SQL Server to be ready..."
         for i in {1..30}; do
-          if sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1' > /dev/null 2>&1; then
+          if docker exec $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest) /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT 1" > /dev/null 2>&1; then
             echo "SQL Server is ready!"
-            sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT @@VERSION'
             break
           fi
-          echo "Waiting for SQL Server... attempt $i/30"
-          sleep 5
+          echo "Attempt $i: SQL Server not ready yet, waiting 10 seconds..."
+          sleep 10
         done
         
-        # Final check - if this fails, the job should fail
-        sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q 'SELECT 1'
+        # Final check
+        if ! docker exec $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest) /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT 1" > /dev/null 2>&1; then
+          echo "❌ SQL Server failed to start after 5 minutes"
+          echo "Container logs:"
+          docker logs $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest)
+          exit 1
+        fi
 
-    - name: Deploy database schema
-      working-directory: ./EventBankingCo.CustomerService.Database
+    - name: Install SQL Server tools
       run: |
-        # Add sqlcmd to PATH
+        echo "Installing SQL Server command line tools..."
+        # Install sqlcmd
+        curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+        curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y mssql-tools unixodbc-dev
+        echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
+        export PATH="$PATH:/opt/mssql-tools/bin"
+
+    - name: Restore NuGet packages
+      run: |
+        echo "Restoring NuGet packages..."
+        dotnet restore
+        if [ $? -ne 0 ]; then
+          echo "❌ Failed to restore NuGet packages"
+          exit 1
+        fi
+        echo "✅ NuGet packages restored successfully"
+
+    - name: Build database project
+      run: |
+        echo "Building database project: ${{ env.DACPAC_PROJECT }}"
+        dotnet build ${{ env.DACPAC_PROJECT }} --configuration Release --no-restore --verbosity normal
+        if [ $? -ne 0 ]; then
+          echo "❌ Failed to build database project"
+          exit 1
+        fi
+        echo "✅ Database project built successfully"
+
+    - name: Find and verify DACPAC file
+      run: |
+        echo "Searching for DACPAC file..."
+        DACPAC_PATH=$(find . -name "*.dacpac" -type f | head -1)
+        if [ -z "$DACPAC_PATH" ]; then
+          echo "❌ DACPAC file not found"
+          echo "Available files in build output:"
+          find . -name "*.dll" -o -name "*.exe" -o -name "*.dacpac" | head -20
+          exit 1
+        fi
+        echo "✅ Found DACPAC: $DACPAC_PATH"
+        echo "DACPAC_PATH=$DACPAC_PATH" >> $GITHUB_ENV
+        
+        # Verify file size
+        FILE_SIZE=$(stat -f%z "$DACPAC_PATH" 2>/dev/null || stat -c%s "$DACPAC_PATH" 2>/dev/null)
+        echo "DACPAC file size: $FILE_SIZE bytes"
+        if [ "$FILE_SIZE" -lt 1000 ]; then
+          echo "⚠️  Warning: DACPAC file seems unusually small"
+        fi
+
+    - name: Install SqlPackage
+      run: |
+        echo "Installing SqlPackage..."
+        wget -q https://aka.ms/sqlpackage-linux -O sqlpackage.zip
+        unzip -q sqlpackage.zip -d sqlpackage
+        chmod +x sqlpackage/sqlpackage
+        echo "$(pwd)/sqlpackage" >> $GITHUB_PATH
+        echo "✅ SqlPackage installed successfully"
+
+    - name: Test SQL Server connectivity
+      run: |
+        echo "Testing SQL Server connectivity..."
         export PATH="$PATH:/opt/mssql-tools/bin"
         
-        # Create the database
-        sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "CREATE DATABASE [EventBankingCo_CustomerService_Test]"
+        # Test basic connectivity
+        if ! sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT GETDATE() as CurrentTime, @@VERSION as SqlVersion"; then
+          echo "❌ Cannot connect to SQL Server"
+          echo "Connection string being used: Server=localhost,1433;User Id=sa;TrustServerCertificate=true"
+          echo "Container status:"
+          docker ps
+          echo "Container logs:"
+          docker logs $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest) --tail 50
+          exit 1
+        fi
+        echo "✅ SQL Server connectivity verified"
+
+    - name: Deploy DACPAC to SQL Server
+      run: |
+        echo "Deploying DACPAC to SQL Server..."
+        echo "Using DACPAC: $DACPAC_PATH"
+        echo "Target database: ${{ env.DATABASE_NAME }}"
         
-        # Execute SQL scripts in order
-        # First, run table creation scripts
-        if [ -d "EventBankingCo.CustomerService.Database" ]; then
-          echo "Found database project directory"
+        # Deploy using SqlPackage
+        sqlpackage \
+          /Action:Publish \
+          /SourceFile:"$DACPAC_PATH" \
+          /TargetServerName:"localhost,1433" \
+          /TargetDatabaseName:"${{ env.DATABASE_NAME }}" \
+          /TargetUser:"sa" \
+          /TargetPassword:"${{ env.SA_PASSWORD }}" \
+          /TargetTrustServerCertificate:True \
+          /p:DropObjectsNotInSource=False \
+          /p:BlockOnPossibleDataLoss=False \
+          /p:CreateNewDatabase=True \
+          /p:IgnorePermissions=True \
+          /p:IgnoreRoleMembership=True \
+          /p:DeployDatabaseInSingleUserMode=False
           
-          # Execute Create Scripts (Tables, Views, etc.)
-          find EventBankingCo.CustomerService.Database -name "*.sql" -not -path "*/bin/*" -not -path "*/obj/*" -type f | sort | while read script; do
-            echo "Executing script: $script"
-            sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -d EventBankingCo_CustomerService_Test -i "$script" -b
-            if [ $? -ne 0 ]; then
-              echo "Failed to execute script: $script"
-              exit 1
-            fi
-          done
-        else
-          echo "Database project directory not found. Skipping database deployment."
+        if [ $? -ne 0 ]; then
+          echo "❌ DACPAC deployment failed"
+          echo "Checking if database was partially created..."
+          export PATH="$PATH:/opt/mssql-tools/bin"
+          sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT name FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'"
+          exit 1
         fi
         
-        # Verify database was created successfully
-        sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd123' -Q "SELECT name FROM sys.databases WHERE name = 'EventBankingCo_CustomerService_Test'"
+        echo "✅ DACPAC deployed successfully"
 
-    - name: Set test environment variables
+    - name: Verify database deployment
       run: |
-        echo "ConnectionStrings__DefaultConnection=Server=localhost;Database=EventBankingCo_CustomerService_Test;User Id=sa;Password=YourStrong!Passw0rd123;TrustServerCertificate=true" >> $GITHUB_ENV
+        echo "Verifying database deployment..."
+        export PATH="$PATH:/opt/mssql-tools/bin"
+        
+        # Check if database exists
+        DB_EXISTS=$(sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT COUNT(*) FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'" -h -1 -W)
+        if [ "$DB_EXISTS" != "1" ]; then
+          echo "❌ Database '${{ env.DATABASE_NAME }}' was not created"
+          echo "Available databases:"
+          sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT name FROM sys.databases"
+          exit 1
+        fi
+        
+        # Check table count (adjust this query based on your schema)
+        echo "Database objects summary:"
+        sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -d "${{ env.DATABASE_NAME }}" -Q "
+        SELECT 
+          'Tables' as ObjectType, COUNT(*) as Count 
+        FROM INFORMATION_SCHEMA.TABLES 
+        WHERE TABLE_TYPE = 'BASE TABLE'
+        UNION ALL
+        SELECT 
+          'Views' as ObjectType, COUNT(*) as Count 
+        FROM INFORMATION_SCHEMA.VIEWS
+        UNION ALL
+        SELECT 
+          'Stored Procedures' as ObjectType, COUNT(*) as Count 
+        FROM INFORMATION_SCHEMA.ROUTINES 
+        WHERE ROUTINE_TYPE = 'PROCEDURE'"
+        
+        echo "✅ Database deployment verified"
 
-    - name: Run tests
-      run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage" --logger trx --results-directory TestResults/ --filter "FullyQualifiedName!~Database"
+    - name: Build test project
+      run: |
+        echo "Building test project: ${{ env.TEST_PROJECT }}"
+        dotnet build ${{ env.TEST_PROJECT }} --configuration Release --no-restore
+        if [ $? -ne 0 ]; then
+          echo "❌ Failed to build test project"
+          exit 1
+        fi
+        echo "✅ Test project built successfully"
+
+    - name: Run database tests
+      env:
+        ConnectionStrings__DefaultConnection: ${{ env.SQL_CONNECTION_STRING }}
+        # Add any other environment variables your tests might need
+        ASPNETCORE_ENVIRONMENT: Testing
+      run: |
+        echo "Running database tests..."
+        echo "Connection string: Server=localhost,1433;Database=${{ env.DATABASE_NAME }};User Id=sa;TrustServerCertificate=true"
+        
+        # Run tests with detailed output
+        dotnet test ${{ env.TEST_PROJECT }} \
+          --configuration Release \
+          --no-build \
+          --verbosity normal \
+          --logger "console;verbosity=detailed" \
+          --logger "trx;LogFileName=test-results.trx" \
+          --collect:"XPlat Code Coverage" \
+          -- \
+          RunConfiguration.DisableAppDomain=true
+
+        TEST_EXIT_CODE=$?
+        
+        # Display test results summary
+        if [ $TEST_EXIT_CODE -eq 0 ]; then
+          echo "✅ All tests passed successfully"
+        else
+          echo "❌ Some tests failed (exit code: $TEST_EXIT_CODE)"
+          
+          # Try to display detailed test results
+          if [ -f "TestResults/test-results.trx" ]; then
+            echo "Test results file found, attempting to parse..."
+            # You might want to install a tool to parse TRX files for better output
+          fi
+          
+          # Show recent test output
+          echo "Recent test output:"
+          find . -name "*.trx" -exec cat {} \; 2>/dev/null || echo "No detailed test results available"
+          
+          exit $TEST_EXIT_CODE
+        fi
 
     - name: Upload test results
       uses: actions/upload-artifact@v4
-      if: always()
+      if: always()  # Upload even if tests fail
       with:
-        name: test-results
-        path: TestResults/
+        name: test-results-${{ github.run_number }}
+        path: |
+          TestResults/
+          **/TestResults/
+        retention-days: 30
 
-    - name: Upload code coverage
-      uses: actions/upload-artifact@v4
+    - name: Database cleanup (on failure)
+      if: failure()
+      run: |
+        echo "Cleaning up database due to pipeline failure..."
+        export PATH="$PATH:/opt/mssql-tools/bin"
+        
+        # Show database state for debugging
+        echo "Current database state:"
+        sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT name, state_desc FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'" || true
+        
+        # Show recent SQL Server logs
+        echo "Recent SQL Server logs:"
+        docker logs $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest) --tail 100 || true
+
+    - name: Pipeline summary
       if: always()
-      with:
-        name: code-coverage
-        path: TestResults/*/coverage.cobertura.xml
-
-    # Optional: Publish code coverage to Codecov
-    # - name: Upload coverage to Codecov
-    #   uses: codecov/codecov-action@v3
-    #   with:
-    #     file: TestResults/*/coverage.cobertura.xml
-    #     fail_ci_if_error: true
+      run: |
+        echo "## Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Database:** ${{ env.DATABASE_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **DACPAC Project:** ${{ env.DACPAC_PROJECT }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test Project:** ${{ env.TEST_PROJECT }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "✅ **Status:** All steps completed successfully" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Status:** Pipeline failed - check logs above for details" >> $GITHUB_STEP_SUMMARY
+        fi
