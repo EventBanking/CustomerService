@@ -120,7 +120,7 @@ jobs:
             /TargetUser:$SQL_USER \
             /TargetPassword:$SQL_PASSWORD \
             /p:BlockOnPossibleDataLoss=false \
-            /p:Encrypt=False
+            /p:TrustServerCertificate=True
 
       - name: 🧪 Run Tests
         run: dotnet test "$SOLUTION_PATH" --configuration Debug --logger "trx"
