@@ -6,16 +6,12 @@ on:
       - '**'
 
 jobs:
-  build-deploy-test:
-    runs-on: ubuntu-latest  # ✅ Use Ubuntu to support Linux-based SQL Server image
+  build:
+    runs-on: windows-latest
 
     env:
-      SQL_SERVER_NAME: sqlserver
-      SQL_USER: sa
-      SQL_PASSWORD: 3v3nTp@sSw0rD
-      DACPAC_PATH: './EventBankingCo.CustomerService.Database/bin/Debug/EventBankingCo.CustomerService.Database.dacpac'
-      DB_NAME: CustomerService
       SOLUTION_PATH: './EventBankingCo.CustomerService.sln'
+      DACPAC_PATH: './EventBankingCo.CustomerService.Database/bin/Debug/EventBankingCo.CustomerService.Database.dacpac'
 
     steps:
       - name: ⬇️ Checkout source
@@ -26,22 +22,45 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: 🐳 Start SQL Server
+      - name: 🏗️ Build solution (including .sqlproj)
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
+            $env:SOLUTION_PATH /p:Configuration=Debug
+
+      - name: 📤 Upload DACPAC artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dacpac
+          path: ${{ env.DACPAC_PATH }}
+
+  deploy-test:
+    needs: build
+    runs-on: ubuntu-latest
+
+    env:
+      SQL_SERVER_NAME: sqlserver
+      SQL_USER: sa
+      SQL_PASSWORD: 3v3nTp@sSw0rD
+      DB_NAME: CustomerService
+      SOLUTION_PATH: './EventBankingCo.CustomerService.sln'
+
+    steps:
+      - name: ⬇️ Checkout source
+        uses: actions/checkout@v4
+
+      - name: 📥 Download DACPAC artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dacpac
+          path: ./dacpac
+
+      - name: 🐳 Start SQL Server container
         run: |
           docker run -d --name $SQL_SERVER_NAME \
             -e "ACCEPT_EULA=Y" \
             -e "SA_PASSWORD=$SQL_PASSWORD" \
             -p 1433:1433 \
             mcr.microsoft.com/mssql/server:2022-latest
-
-      - name: 🛠️ Install sqlcmd
-        run: |
-          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-          sudo add-apt-repository "$(curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list)"
-          sudo apt-get update
-          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools unixodbc-dev
-          echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
-          source ~/.bashrc
 
       - name: 💤 Wait for SQL Server to be ready (via logs)
         run: |
@@ -56,24 +75,21 @@ jobs:
             sleep 5
           done
 
-          # Final check
-          docker logs $SQL_SERVER_NAME
           docker logs $SQL_SERVER_NAME 2>&1 | grep -q "SQL Server is now ready for client connections" || {
             echo "❌ SQL Server did not become ready in time."
             exit 1
           }
 
-      - name: 🏗️ Build solution
-        run: dotnet build "$SOLUTION_PATH" --configuration Debug
-
-      - name: 📦 Deploy DACPAC using sqlpackage
+      - name: 📦 Install sqlpackage
         run: |
           curl -LO https://aka.ms/sqlpackage-linux
           unzip sqlpackage-linux -d sqlpackage
           chmod +x sqlpackage/sqlpackage
 
+      - name: 🚀 Deploy DACPAC
+        run: |
           ./sqlpackage/sqlpackage /Action:Publish \
-            /SourceFile:$DACPAC_PATH \
+            /SourceFile:./dacpac/EventBankingCo.CustomerService.Database.dacpac \
             /TargetServerName:localhost \
             /TargetDatabaseName:$DB_NAME \
             /TargetUser:$SQL_USER \
