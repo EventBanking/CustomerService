@@ -84,7 +84,7 @@ jobs:
         shell: bash
         run: |
           echo "Waiting for SQL Server to be ready..."
-    
+
           set +e  # temporarily disable exit-on-error
           for i in $(seq 1 30); do
             docker logs $SQL_SERVER_NAME 2>&1 | grep -q "SQL Server is now ready for client connections"
@@ -97,7 +97,7 @@ jobs:
             sleep 5
           done
           set -e  # re-enable exit-on-error
-    
+
           if [ "$ready" != "true" ]; then
             echo "❌ SQL Server did not become ready in time."
             echo "📄 Dumping recent container logs for debugging:"
@@ -115,12 +115,8 @@ jobs:
         run: |
           ./sqlpackage/sqlpackage /Action:Publish \
             /SourceFile:./dacpac/EventBankingCo.CustomerService.Database.dacpac \
-            /TargetServerName:localhost \
-            /TargetDatabaseName:$DB_NAME \
-            /TargetUser:$SQL_USER \
-            /TargetPassword:$SQL_PASSWORD \
-            /p:BlockOnPossibleDataLoss=false \
-            /p:TrustServerCertificate=True
+            /TargetConnectionString:"Server=localhost;Database=$DB_NAME;User Id=$SQL_USER;Password=$SQL_PASSWORD;TrustServerCertificate=True;" \
+            /p:BlockOnPossibleDataLoss=false
 
       - name: 🧪 Run Tests
         run: dotnet test "$SOLUTION_PATH" --configuration Debug --logger "trx"
