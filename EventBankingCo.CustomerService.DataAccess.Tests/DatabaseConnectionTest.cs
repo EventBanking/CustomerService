@@ -15,5 +15,11 @@ namespace EventBankingCo.CustomerService.DataAccess.Tests
 
             connection.Close();
         }
+
+        [Fact]
+        public void ForceFailure()
+        {
+            Assert.True(false);
+        }
     }
 }
