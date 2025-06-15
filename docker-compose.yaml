@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    environment:
+      SA_PASSWORD: 3v3nTp@sSw0rD
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    volumes:
+      - ./dacpac:/var/opt/mssql/dacpac
+    healthcheck:
+      test: ["CMD", "sqlcmd", "-S", "localhost", "-U", "sa", "-P", "3v3nTp@sSw0rD", "-Q", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

@@ -1,0 +1,47 @@
+# Exclude build artifacts and temporary files
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/TestResults/
+
+# Exclude Git files
+.git/
+.gitignore
+.gitattributes
+
+# Exclude documentation and readme files
+*.md
+*.txt
+LICENSE
+
+# Exclude CI/CD files (except the ones we need)
+.github/
+azure-pipelines.yml
+*.yml
+!docker-compose.yml
+
+# Exclude IDE files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+# Exclude logs
+logs/
+*.log
+
+# Exclude temp files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*~
+
+# Keep only necessary files for Docker build
+!dacpac/
+!init-scripts/
+!Dockerfile
+!docker-compose.yml
