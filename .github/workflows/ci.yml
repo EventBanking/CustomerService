@@ -46,7 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dacpac
-          path: ${{ env.DACPAC_PATH }}
+          path: '**.*.dacpac'
 
   deploy-test:
     needs: build
