@@ -11,7 +11,7 @@ jobs:
 
     env:
       SOLUTION_PATH: './EventBankingCo.CustomerService.sln'
-      DACPAC_PATH: './EventBankingCo.CustomerService.Database/bin/Debug/EventBankingCo.CustomerService.Database.dacpac'
+      DACPAC_PATH: './EventBankingCo.CustomerService.Database/bin/Output/EventBankingCo.CustomerService.Database.dacpac'
 
     steps:
       - name: ⬇️ Checkout source
@@ -42,11 +42,14 @@ jobs:
             /p:Configuration=Debug ^
             /p:Platform="Any CPU"
 
+      - name: 🔍 Verify DACPAC location
+        run: dir EventBankingCo.CustomerService.Database\bin\Output
+
       - name: 📤 Upload DACPAC artifact
         uses: actions/upload-artifact@v4
         with:
           name: dacpac
-          path: '**.*.dacpac'
+          path: EventBankingCo.CustomerService.Database/bin/Output/*.dacpac
 
   deploy-test:
     needs: build
