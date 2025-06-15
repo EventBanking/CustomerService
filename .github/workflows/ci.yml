@@ -81,9 +81,10 @@ jobs:
             mcr.microsoft.com/mssql/server:2022-latest
 
       - name: 💤 Wait for SQL Server to be ready (via logs)
+        shell: bash
         run: |
           echo "Waiting for SQL Server to be ready..."
-          for i in {1..30}; do
+          for i in $(seq 1 30); do
             docker logs $SQL_SERVER_NAME 2>&1 | grep -q "SQL Server is now ready for client connections"
             if [ $? -eq 0 ]; then
               echo "✅ SQL Server is ready!"
@@ -92,11 +93,15 @@ jobs:
             echo "⏳ Waiting ($i)..."
             sleep 5
           done
-
+        
+          # Final check, with fallback logs if unsuccessful
           docker logs $SQL_SERVER_NAME 2>&1 | grep -q "SQL Server is now ready for client connections" || {
             echo "❌ SQL Server did not become ready in time."
+            echo "📄 Dumping recent container logs for debugging:"
+            docker logs $SQL_SERVER_NAME
             exit 1
           }
+
 
       - name: 📦 Install sqlpackage
         run: |
