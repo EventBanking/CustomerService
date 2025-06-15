@@ -119,7 +119,11 @@ jobs:
             /p:BlockOnPossibleDataLoss=false
 
       - name: 🧪 Run Tests
-        run: dotnet test "$SOLUTION_PATH" --configuration Debug --logger "trx"
+        run: |
+          for proj in $(find . -type f -name "*.Tests.csproj"); do
+            echo "Running tests in $proj"
+            dotnet test "$proj" --configuration Debug --logger "trx"
+          done
 
       - name: 📤 Upload Test Results
         if: always()
