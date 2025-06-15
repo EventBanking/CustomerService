@@ -23,11 +23,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore NuGet packages
-        run: |
-          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
-            /EventBankingCo.CustomerService.sln `
-            /t:Restore `
-            /p:Configuration=Debug
+        run: dotnet restore $env:SOLUTION_PATH
       
       - name: 🏗️ Build solution (including .sqlproj)
         run: |
