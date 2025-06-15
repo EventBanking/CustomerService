@@ -84,24 +84,26 @@ jobs:
         shell: bash
         run: |
           echo "Waiting for SQL Server to be ready..."
+    
+          set +e  # temporarily disable exit-on-error
           for i in $(seq 1 30); do
             docker logs $SQL_SERVER_NAME 2>&1 | grep -q "SQL Server is now ready for client connections"
             if [ $? -eq 0 ]; then
               echo "✅ SQL Server is ready!"
+              ready=true
               break
             fi
             echo "⏳ Waiting ($i)..."
             sleep 5
           done
-        
-          # Final check, with fallback logs if unsuccessful
-          docker logs $SQL_SERVER_NAME 2>&1 | grep -q "SQL Server is now ready for client connections" || {
+          set -e  # re-enable exit-on-error
+    
+          if [ "$ready" != "true" ]; then
             echo "❌ SQL Server did not become ready in time."
             echo "📄 Dumping recent container logs for debugging:"
             docker logs $SQL_SERVER_NAME
             exit 1
-          }
-
+          fi
 
       - name: 📦 Install sqlpackage
         run: |
