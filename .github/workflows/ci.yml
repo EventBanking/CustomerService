@@ -35,11 +35,12 @@ jobs:
           }
 
       - name: 🏗️ Build SQL Server Database Project (.sqlproj)
-        run: >
-          "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
-          EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj
-          /p:Configuration=Debug
-          /p:Platform="Any CPU"
+        shell: cmd
+        run: |
+          "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" ^
+            EventBankingCo.CustomerService.Database\EventBankingCo.CustomerService.Database.sqlproj ^
+            /p:Configuration=Debug ^
+            /p:Platform="Any CPU"
 
       - name: 📤 Upload DACPAC artifact
         uses: actions/upload-artifact@v4
