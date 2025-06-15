@@ -22,14 +22,18 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore NuGet packages
+      - name: 🔄 Restore NuGet packages
         run: dotnet restore $env:SOLUTION_PATH
 
-      # 🔄 Changed: dotnet build only for .NET projects
       - name: 🏗️ Build .NET projects (excluding .sqlproj)
-        run: dotnet build $env:SOLUTION_PATH --configuration Debug --no-restore
+        shell: pwsh
+        run: |
+          $projects = dotnet sln $env:SOLUTION_PATH list | Where-Object { $_ -like '*.csproj' }
+          foreach ($proj in $projects) {
+            Write-Host "🔨 Building $proj..."
+            dotnet build $proj --configuration Debug --no-restore
+          }
 
-      # ➕ Added: MSBuild for .sqlproj (DACPAC)
       - name: 🏗️ Build SQL Server Database Project (.sqlproj)
         run: >
           "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
