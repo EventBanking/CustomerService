@@ -12,10 +12,10 @@ jobs:
     env:
       SQL_SERVER_NAME: sqlserver
       SQL_USER: sa
-      SQL_PASSWORD: YourStrong!Passw0rd
-      DACPAC_PATH: './path/to/your.dacpac'
-      DB_NAME: YourDatabaseName
-      SOLUTION_PATH: './YourSolution.sln'
+      SQL_PASSWORD: 3v3nTp@sSw0rD
+      DACPAC_PATH: './EventBankingCo.CustomerService.Database/bin/debug/EventBankingCo.CustomerService.Database.dacpac'
+      DB_NAME: CustomerService
+      SOLUTION_PATH: './EventBankingCo.CustomerService.sln'
 
     steps:
       - name: ⬇️ Checkout source
