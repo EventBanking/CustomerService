@@ -1,394 +1,72 @@
-﻿name: Database CI/CD Pipeline
+﻿name: Build, Deploy, and Test
 
 on:
   push:
-    branches: ['**']  # Triggers on push to any branch
-  pull_request:
-    branches: ['**']
-
-env:
-  # SQL Server Configuration
-  SQL_SERVER_VERSION: '2022-latest'
-  DATABASE_NAME: 'EventBankingCo_CustomerService'
-  SQL_CONNECTION_STRING: 'Server=localhost,1433;Database=EventBankingCo_CustomerService;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true;Connection Timeout=30;'
-  SA_PASSWORD: '3v3nTp@sSw0rD'
-  
-  # Project Configuration
-  DACPAC_PROJECT: 'EventBankingCo.CustomerService.Database'
-  TEST_PROJECT: 'EventBankingCo.CustomerService.DataAccess.Tests'
-  DOTNET_VERSION: '8.0.x'  # Adjust to your .NET version
+    branches:
+      - '**'
 
 jobs:
-  database-ci-cd:
-    runs-on: ubuntu-latest
-    
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: Y
-          SA_PASSWORD: ${{ env.SA_PASSWORD }}
-          MSSQL_PID: Developer
-        ports:
-          - 1433:1433
-        options: >-
-          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $SA_PASSWORD -C -Q 'SELECT 1' || exit 1"
-          --health-interval=15s
-          --health-timeout=10s
-          --health-retries=15
-          --health-start-period=30s
+  build-deploy-test:
+    runs-on: windows-latest  # Use Windows because of SQL Server tools support
+
+    env:
+      SQL_SERVER_NAME: sqlserver
+      SQL_USER: sa
+      SQL_PASSWORD: YourStrong!Passw0rd
+      DACPAC_PATH: './path/to/your.dacpac'
+      DB_NAME: YourDatabaseName
+      SOLUTION_PATH: './YourSolution.sln'
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: ⬇️ Checkout source
+        uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: 🧰 Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x' # Or your specific version
 
-    - name: Cache NuGet packages
-      uses: actions/cache@v3
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/*.props') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
+      - name: 🐳 Start SQL Server
+        run: |
+          docker run -d --name ${{ env.SQL_SERVER_NAME }} `
+            -e "ACCEPT_EULA=Y" `
+            -e "SA_PASSWORD=${{ env.SQL_PASSWORD }}" `
+            -p 1433:1433 `
+            mcr.microsoft.com/mssql/server:2022-latest
 
-    - name: Verify SQL Server container and wait for readiness
-      run: |
-        echo "Checking SQL Server container status..."
-        
-        # Check if container is running
-        CONTAINER_ID=$(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest)
-        if [ -z "$CONTAINER_ID" ]; then
-          echo "❌ SQL Server container is not running"
-          echo "All containers:"
-          docker ps -a
-          echo "Container logs (if any):"
-          docker logs $(docker ps -aq --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest) 2>/dev/null || echo "No logs available"
-          exit 1
-        fi
-        
-        echo "✅ SQL Server container is running (ID: $CONTAINER_ID)"
-        
-        # Wait for SQL Server to be ready - focus on actual connectivity, not just health check
-        echo "Waiting for SQL Server to accept connections..."
-        READY=false
-        for i in {1..40}; do
-          echo "Attempt $i/40: Testing SQL Server connection..."
-          
-          # Check container health status
-          HEALTH_STATUS=$(docker inspect --format='{{.State.Health.Status}}' $CONTAINER_ID 2>/dev/null || echo "unknown")
-          echo "Container health status: $HEALTH_STATUS"
-          
-          # Primary test: Try to connect using sqlcmd from host
-          if timeout 15 sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT 1 as TestConnection" > /dev/null 2>&1; then
-            echo "✅ SQL Server is ready and accepting connections!"
-            READY=true
-            break
-          fi
-          
-          # Secondary test: Try via docker exec (in case host networking has issues)
-          if timeout 15 docker exec $CONTAINER_ID /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT 1" > /dev/null 2>&1; then
-            echo "✅ SQL Server is ready (verified via docker exec)!"
-            READY=true
-            break
-          fi
-          
-          # Check if SQL Server process is at least running inside container
-          if docker exec $CONTAINER_ID pgrep sqlservr > /dev/null 2>&1; then
-            echo "SQL Server process is running, but not accepting connections yet..."
-          else
-            echo "SQL Server process not found - still starting up..."
-          fi
-          
-          echo "SQL Server not ready yet, waiting 8 seconds..."
-          sleep 8
-          
-          # Show logs every 5 attempts for debugging
-          if [ $((i % 5)) -eq 0 ]; then
-            echo "Container logs preview (last 5 lines):"
-            docker logs $CONTAINER_ID --tail 5
-          fi
-        done
-        
-        if [ "$READY" = false ]; then
-          echo "❌ SQL Server failed to start after ~5 minutes"
-          echo "Final container health status:"
-          docker inspect $CONTAINER_ID --format='Status: {{.State.Status}}, Health: {{.State.Health.Status}}'
-          echo ""
-          echo "SQL Server process check:"
-          docker exec $CONTAINER_ID pgrep sqlservr || echo "SQL Server process not running"
-          echo ""
-          echo "Port check inside container:"
-          docker exec $CONTAINER_ID netstat -tuln | grep 1433 || echo "Port 1433 not listening"
-          echo ""
-          echo "Full container logs:"
-          docker logs $CONTAINER_ID
-          exit 1
-        fi
+      - name: 💤 Wait for SQL Server to be ready
+        run: |
+          echo "Waiting for SQL Server to start..."
+          for /l %%x in (1, 1, 30) do (
+            sqlcmd -S localhost -U ${{ env.SQL_USER }} -P ${{ env.SQL_PASSWORD }} -Q "SELECT 1" && goto :done
+            timeout /t 5 > nul
+          )
+          echo "SQL Server did not start in time" & exit 1
+          :done
 
-    - name: Install SQL Server tools
-      run: |
-        echo "Installing SQL Server command line tools..."
-        
-        # Install curl if not available
-        sudo apt-get update
-        
-        # Add Microsoft repository
-        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
-        echo "deb [arch=amd64,arm64,armhf signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/20.04/prod focal main" | sudo tee /etc/apt/sources.list.d/mssql-release.list
-        
-        # Update package list and install tools
-        sudo apt-get update
-        sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18 unixodbc-dev
-        
-        # Add to PATH
-        echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
-        export PATH="$PATH:/opt/mssql-tools18/bin"
-        
-        # Verify installation
-        sqlcmd -?
-        echo "✅ SQL Server tools installed successfully"
+      - name: 🏗️ Build solution
+        run: dotnet build ${{ env.SOLUTION_PATH }} --configuration Release
 
-    - name: Restore NuGet packages
-      run: |
-        echo "Restoring NuGet packages..."
-        dotnet restore
-        if [ $? -ne 0 ]; then
-          echo "❌ Failed to restore NuGet packages"
-          exit 1
-        fi
-        echo "✅ NuGet packages restored successfully"
+      - name: 📦 Deploy DACPAC
+        run: |
+          "C:\Program Files\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe" /Action:Publish `
+            /SourceFile:${{ env.DACPAC_PATH }} `
+            /TargetServerName:localhost `
+            /TargetDatabaseName:${{ env.DB_NAME }} `
+            /TargetUser:${{ env.SQL_USER }} `
+            /TargetPassword:${{ env.SQL_PASSWORD }} `
+            /p:BlockOnPossibleDataLoss=false
 
-    - name: Build database project
-      run: |
-        echo "Building database project: ${{ env.DACPAC_PROJECT }}"
-        dotnet build ${{ env.DACPAC_PROJECT }} --configuration Release --no-restore --verbosity normal
-        if [ $? -ne 0 ]; then
-          echo "❌ Failed to build database project"
-          exit 1
-        fi
-        echo "✅ Database project built successfully"
+      - name: 🧪 Run Tests
+        run: dotnet test ${{ env.SOLUTION_PATH }} --configuration Release --logger "trx"
 
-    - name: Find and verify DACPAC file
-      run: |
-        echo "Searching for DACPAC file..."
-        DACPAC_PATH=$(find . -name "*.dacpac" -type f | head -1)
-        if [ -z "$DACPAC_PATH" ]; then
-          echo "❌ DACPAC file not found"
-          echo "Available files in build output:"
-          find . -name "*.dll" -o -name "*.exe" -o -name "*.dacpac" | head -20
-          exit 1
-        fi
-        echo "✅ Found DACPAC: $DACPAC_PATH"
-        echo "DACPAC_PATH=$DACPAC_PATH" >> $GITHUB_ENV
-        
-        # Verify file size
-        FILE_SIZE=$(stat -f%z "$DACPAC_PATH" 2>/dev/null || stat -c%s "$DACPAC_PATH" 2>/dev/null)
-        echo "DACPAC file size: $FILE_SIZE bytes"
-        if [ "$FILE_SIZE" -lt 1000 ]; then
-          echo "⚠️  Warning: DACPAC file seems unusually small"
-        fi
+      - name: 📤 Upload Test Results (Optional but helpful)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
 
-    - name: Install SqlPackage
-      run: |
-        echo "Installing SqlPackage..."
-        wget -q https://aka.ms/sqlpackage-linux -O sqlpackage.zip
-        unzip -q sqlpackage.zip -d sqlpackage
-        chmod +x sqlpackage/sqlpackage
-        echo "$(pwd)/sqlpackage" >> $GITHUB_PATH
-        echo "✅ SqlPackage installed successfully"
-
-    - name: Test SQL Server connectivity
-      run: |
-        echo "Testing SQL Server connectivity..."
-        
-        # Test basic connectivity with explicit parameters
-        echo "Testing connection with sqlcmd..."
-        if ! sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT GETDATE() as CurrentTime, @@VERSION as SqlVersion" -t 30; then
-          echo "❌ Cannot connect to SQL Server via sqlcmd"
-          echo "Connection details:"
-          echo "  Server: localhost,1433"
-          echo "  User: sa" 
-          echo "  TrustServerCertificate: Yes"
-          echo ""
-          echo "Container status:"
-          docker ps --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest
-          echo ""
-          echo "Container health:"
-          CONTAINER_ID=$(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest)
-          if [ ! -z "$CONTAINER_ID" ]; then
-            docker inspect --format='Health: {{.State.Health.Status}}' $CONTAINER_ID
-            echo ""
-            echo "Recent container logs:"
-            docker logs $CONTAINER_ID --tail 50
-          fi
-          echo ""
-          echo "Network connectivity test:"
-          nc -zv localhost 1433 || echo "Port 1433 is not accessible"
-          exit 1
-        fi
-        echo "✅ SQL Server connectivity verified"
-
-    - name: Deploy DACPAC to SQL Server
-      run: |
-        echo "Deploying DACPAC to SQL Server..."
-        echo "Using DACPAC: $DACPAC_PATH"
-        echo "Target database: ${{ env.DATABASE_NAME }}"
-        
-        # Deploy using SqlPackage
-        sqlpackage \
-          /Action:Publish \
-          /SourceFile:"$DACPAC_PATH" \
-          /TargetServerName:"localhost,1433" \
-          /TargetDatabaseName:"${{ env.DATABASE_NAME }}" \
-          /TargetUser:"sa" \
-          /TargetPassword:"${{ env.SA_PASSWORD }}" \
-          /TargetTrustServerCertificate:True \
-          /p:DropObjectsNotInSource=False \
-          /p:BlockOnPossibleDataLoss=False \
-          /p:CreateNewDatabase=True \
-          /p:IgnorePermissions=True \
-          /p:IgnoreRoleMembership=True \
-          /p:DeployDatabaseInSingleUserMode=False
-          
-        if [ $? -ne 0 ]; then
-          echo "❌ DACPAC deployment failed"
-          echo "Checking if database was partially created..."
-          export PATH="$PATH:/opt/mssql-tools/bin"
-          sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -Q "SELECT name FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'"
-          exit 1
-        fi
-        
-        echo "✅ DACPAC deployed successfully"
-
-    - name: Verify database deployment
-      run: |
-        echo "Verifying database deployment..."
-        
-        # Check if database exists
-        DB_EXISTS=$(sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT COUNT(*) FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'" -h -1 -W -t 30)
-        if [ "$DB_EXISTS" != "1" ]; then
-          echo "❌ Database '${{ env.DATABASE_NAME }}' was not created"
-          echo "Available databases:"
-          sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT name FROM sys.databases" -t 30
-          exit 1
-        fi
-        
-        # Check table count (adjust this query based on your schema)
-        echo "Database objects summary:"
-        sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -d "${{ env.DATABASE_NAME }}" -Q "
-        SELECT 
-          'Tables' as ObjectType, COUNT(*) as Count 
-        FROM INFORMATION_SCHEMA.TABLES 
-        WHERE TABLE_TYPE = 'BASE TABLE'
-        UNION ALL
-        SELECT 
-          'Views' as ObjectType, COUNT(*) as Count 
-        FROM INFORMATION_SCHEMA.VIEWS
-        UNION ALL
-        SELECT 
-          'Stored Procedures' as ObjectType, COUNT(*) as Count 
-        FROM INFORMATION_SCHEMA.ROUTINES 
-        WHERE ROUTINE_TYPE = 'PROCEDURE'" -t 30
-        
-        echo "✅ Database deployment verified"
-
-    - name: Build test project
-      run: |
-        echo "Building test project: ${{ env.TEST_PROJECT }}"
-        dotnet build ${{ env.TEST_PROJECT }} --configuration Release --no-restore
-        if [ $? -ne 0 ]; then
-          echo "❌ Failed to build test project"
-          exit 1
-        fi
-        echo "✅ Test project built successfully"
-
-    - name: Run database tests
-      env:
-        ConnectionStrings__DefaultConnection: ${{ env.SQL_CONNECTION_STRING }}
-        # Add any other environment variables your tests might need
-        ASPNETCORE_ENVIRONMENT: Testing
-      run: |
-        echo "Running database tests..."
-        echo "Connection string: Server=localhost,1433;Database=${{ env.DATABASE_NAME }};User Id=sa;TrustServerCertificate=true"
-        
-        # Run tests with detailed output
-        dotnet test ${{ env.TEST_PROJECT }} \
-          --configuration Release \
-          --no-build \
-          --verbosity normal \
-          --logger "console;verbosity=detailed" \
-          --logger "trx;LogFileName=test-results.trx" \
-          --collect:"XPlat Code Coverage" \
-          -- \
-          RunConfiguration.DisableAppDomain=true
-
-        TEST_EXIT_CODE=$?
-        
-        # Display test results summary
-        if [ $TEST_EXIT_CODE -eq 0 ]; then
-          echo "✅ All tests passed successfully"
-        else
-          echo "❌ Some tests failed (exit code: $TEST_EXIT_CODE)"
-          
-          # Try to display detailed test results
-          if [ -f "TestResults/test-results.trx" ]; then
-            echo "Test results file found, attempting to parse..."
-            # You might want to install a tool to parse TRX files for better output
-          fi
-          
-          # Show recent test output
-          echo "Recent test output:"
-          find . -name "*.trx" -exec cat {} \; 2>/dev/null || echo "No detailed test results available"
-          
-          exit $TEST_EXIT_CODE
-        fi
-
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always()  # Upload even if tests fail
-      with:
-        name: test-results-${{ github.run_number }}
-        path: |
-          TestResults/
-          **/TestResults/
-        retention-days: 30
-
-    - name: Database cleanup (on failure)
-      if: failure()
-      run: |
-        echo "Cleaning up database due to pipeline failure..."
-        
-        # Show database state for debugging
-        echo "Current database state:"
-        sqlcmd -S localhost,1433 -U sa -P "${{ env.SA_PASSWORD }}" -C -Q "SELECT name, state_desc FROM sys.databases WHERE name = '${{ env.DATABASE_NAME }}'" -t 30 || true
-        
-        # Show recent SQL Server logs
-        echo "Recent SQL Server logs:"
-        CONTAINER_ID=$(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest)
-        if [ ! -z "$CONTAINER_ID" ]; then
-          docker logs $CONTAINER_ID --tail 100 || true
-        else
-          echo "No SQL Server container found"
-        fi
-
-    - name: Pipeline summary
-      if: always()
-      run: |
-        echo "## Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Database:** ${{ env.DATABASE_NAME }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **DACPAC Project:** ${{ env.DACPAC_PROJECT }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Test Project:** ${{ env.TEST_PROJECT }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        if [ "${{ job.status }}" == "success" ]; then
-          echo "✅ **Status:** All steps completed successfully" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "❌ **Status:** Pipeline failed - check logs above for details" >> $GITHUB_STEP_SUMMARY
-        fi
+      - name: 🧹 Cleanup
+        if: always()
+        run: docker rm -f ${{ env.SQL_SERVER_NAME }}
