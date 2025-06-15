@@ -59,7 +59,7 @@ jobs:
       SQL_SERVER_NAME: sqlserver
       SQL_USER: sa
       SQL_PASSWORD: 3v3nTp@sSw0rD
-      DB_NAME: CustomerService
+      DB_NAME: EventBankingCo_CustomerService_Test
       SOLUTION_PATH: './EventBankingCo.CustomerService.sln'
 
     steps:
