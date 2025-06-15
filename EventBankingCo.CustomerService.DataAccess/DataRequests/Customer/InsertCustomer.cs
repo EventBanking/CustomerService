@@ -25,7 +25,7 @@ namespace EventBankingCo.CustomerService.DataAccess.DataRequests.Customer
 
         public string PhoneNumber { get; set; }
 
-        VerificationStatus VerificationStatus { get; set; }
+        public VerificationStatus VerificationStatus { get; set; }
 
         public override object? GetParameters() => this;
 
