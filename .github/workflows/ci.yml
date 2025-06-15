@@ -23,6 +23,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore NuGet packages
+        working-directory: ${{ github.workspace }}/CustomerService
         run: |
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
             CustomerService/EventBankingCo.CustomerService.sln `
@@ -30,6 +31,7 @@ jobs:
             /p:Configuration=Debug
       
       - name: 🏗️ Build solution (including .sqlproj)
+        working-directory: ${{ github.workspace }}/CustomerService
         run: |
           & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
             $env:SOLUTION_PATH /p:Configuration=Debug
