@@ -68,8 +68,8 @@
     <Build Include="dbo\Tables\Addresses.sql" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Scripts\SeedTables\SeedTable_VerificationStatuses.sql" />
-    <None Include="Scripts\SeedTables\SeedTable_States.sql" />
+    <None Include="Scripts\SeedTables\Seed_VerificationStatuses.sql" />
+    <None Include="Scripts\SeedTables\Seed_States.sql" />
   </ItemGroup>
   <ItemGroup>
     <PostDeploy Include="Scripts\PostDeployment.sql" />
