@@ -1,2 +1,2 @@
-﻿:r ./Seed/SeedTable_States.sql
-:r ./Seed/SeedTable_VerificationStatuses.sql
+﻿:r ./SeedTables/Seed_States.sql
+:r ./SeedTables/Seed_VerificationStatuses.sql
