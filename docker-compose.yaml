@@ -25,7 +25,7 @@ services:
       SQL_SERVER: sqlserver
       SQL_USER: sa
       SQL_PASSWORD: 3v3nTp@sSw0rD
-      DB_NAME: EventBankingCo_CustomerService_Dev
+      DB_NAME: EventBankingCo_CustomerService_Test
     volumes:
       - ./EventBankingCo.CustomerService.Database/bin/Output:/dacpac
       - ./init-db.sh:/init-db.sh
