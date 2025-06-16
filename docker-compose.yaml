@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -9,10 +7,30 @@ services:
       ACCEPT_EULA: "Y"
     ports:
       - "1433:1433"
-    volumes:
-      - ./dacpac:/var/opt/mssql/dacpac
+    networks:
+      - devnet
     healthcheck:
-      test: ["CMD", "sqlcmd", "-S", "localhost", "-U", "sa", "-P", "3v3nTp@sSw0rD", "-Q", "SELECT 1"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/1433"]
       interval: 10s
       timeout: 5s
       retries: 10
+  db-init:
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    networks:
+      - devnet
+    environment:
+      SQL_SERVER: sqlserver
+      SQL_USER: sa
+      SQL_PASSWORD: 3v3nTp@sSw0rD
+      DB_NAME: EventBankingCo_CustomerService_Dev
+    volumes:
+      - ./EventBankingCo.CustomerService.Database/bin/Output:/dacpac
+      - ./init-db.sh:/init-db.sh
+    working_dir: /src
+    command: ["bash", "/init-db.sh"]
+
+networks:
+  devnet:

@@ -1,0 +1,33 @@
+# Start from a full .NET SDK image
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+
+# Install dependencies
+RUN apt-get update && apt-get install -y unzip curl libunwind8
+
+# Install sqlpackage
+RUN curl -LO https://aka.ms/sqlpackage-linux && \
+    unzip sqlpackage-linux -d /sqlpackage && \
+    chmod +x /sqlpackage/sqlpackage && \
+    ln -s /sqlpackage/sqlpackage /usr/local/bin/sqlpackage
+
+# Set working directory
+WORKDIR /src
+
+# Copy csproj and sln files
+COPY ./EventBankingCo.CustomerService.Database/*.sqlproj ./EventBankingCo.CustomerService.Database/
+COPY ./EventBankingCo.CustomerService.sln ./
+COPY ./EventBankingCo.CustomerService.Database ./EventBankingCo.CustomerService.Database
+
+# Build DACPAC
+RUN dotnet build ./EventBankingCo.CustomerService.Database/EventBankingCo.CustomerService.Database.sqlproj \
+    --configuration Debug
+
+# Deploy DACPAC
+CMD echo "🔄 Waiting for SQL Server at $SQL_SERVER..." && \
+    for i in {1..30}; do \
+        /sqlpackage/sqlpackage /Action:Publish \
+            /SourceFile:/src/EventBankingCo.CustomerService.Database/bin/Debug/EventBankingCo.CustomerService.Database.dacpac \
+            /TargetConnectionString:"Server=$SQL_SERVER;Database=$DB_NAME;User Id=$SQL_USER;Password=$SQL_PASSWORD;TrustServerCertificate=True;" \
+            /p:BlockOnPossibleDataLoss=false && break || \
+        echo "⏳ SQL Server not ready, retrying ($i)..." && sleep 5; \
+    done

@@ -1,32 +1,24 @@
-#!/usr/bin/env bash
-set -e
+#!/bin/bash
+set -euo pipefail
 
-DB_NAME="EventBankingCo_CustomerService_Test"
-SQL_USER="sa"
-SQL_PASSWORD="3v3nTp@sSw0rD"
-DACPAC_PATH="./dacpac/EventBankingCo.CustomerService.Database.dacpac"
+apt-get update && \
+apt-get install -y unzip curl libicu-dev
 
-# Wait for SQL Server to become available
-echo "Waiting for SQL Server to be ready..."
+curl -LO https://aka.ms/sqlpackage-linux
+unzip sqlpackage-linux -d /sqlpackage
+chmod +x /sqlpackage/sqlpackage
+ln -s /sqlpackage/sqlpackage /usr/local/bin/sqlpackage
+
+echo "🔄 Waiting for SQL Server at $SQL_SERVER..."
+
 for i in {1..30}; do
-  if docker exec sqlserver /opt/mssql-tools/bin/sqlcmd -S localhost -U $SQL_USER -P $SQL_PASSWORD -Q "SELECT 1" &> /dev/null; then
-    echo "✅ SQL Server is ready."
-    break
-  fi
-  echo "⏳ Waiting for SQL Server... ($i)"
-  sleep 5
+  sqlpackage /Action:Publish \
+    /SourceFile:/dacpac/EventBankingCo.CustomerService.Database.dacpac \
+    /TargetConnectionString:"Server=$SQL_SERVER;Database=$DB_NAME;User Id=$SQL_USER;Password=$SQL_PASSWORD;TrustServerCertificate=True;" \
+    /p:BlockOnPossibleDataLoss=false && break || {
+      echo "⏳ SQL Server not ready, retrying ($i)..."
+      sleep 5
+    }
 done
 
-# Deploy DACPAC
-echo "🚀 Deploying DACPAC..."
-docker exec sqlserver /bin/bash -c "
-  curl -LO https://aka.ms/sqlpackage-linux &&
-  unzip -o sqlpackage-linux -d sqlpackage &&
-  chmod +x sqlpackage/sqlpackage &&
-  ./sqlpackage/sqlpackage /Action:Publish \
-   /SourceFile:/var/opt/mssql/dacpac/EventBankingCo.CustomerService.Database.dacpac \
-   /TargetConnectionString:'Server=localhost;User Id=sa;Password=3v3nTp@sSw0rD;TrustServerCertificate=True;' \
-   /p:BlockOnPossibleDataLoss=false \
-   /p:CreateNewDatabase=true \
-   /TargetDatabaseName:"$DB_NAME"
-
+echo "✅ DACPAC deployment complete!"
